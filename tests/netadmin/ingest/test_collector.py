@@ -15,10 +15,10 @@ from typing import Optional
 import pytest
 
 from netadmin.domain.types import EntityType
+from netadmin.config import MISFIRE_GRACE_S, misfire_grace_for
 from netadmin.ingest.collector import (
     JOB_FAST_DEVICE,
     JOB_FAST_HEALTH,
-    MISFIRE_GRACE_S,
     Collector,
     CollectorStatus,
     build_scheduler,
@@ -420,8 +420,14 @@ async def test_build_scheduler_wires_all_jobs_max_instance_one(repo):
             assert job.max_instances == 1
             assert job.coalesce is True
             # Not APScheduler's 1 s default: a stalled loop delays runs, never
-            # silently skips them (the sle_minutes starvation class).
-            assert job.misfire_grace_time == MISFIRE_GRACE_S
+            # silently skips them (the sle_minutes starvation class). Scaled to
+            # the period so the 6 h / 24 h jobs cannot lose a whole period.
+            interval = int(job.trigger.interval.total_seconds())
+            assert job.misfire_grace_time == misfire_grace_for(interval)
+            assert job.misfire_grace_time >= MISFIRE_GRACE_S
+        # The long-period jobs concretely: half the period, capped at an hour.
+        assert sched.get_job("reports_5min").misfire_grace_time == 3600
+        assert sched.get_job("rogueap").misfire_grace_time == 3600
         dev = sched.get_job("fast_device")
         assert int(dev.trigger.interval.total_seconds()) == 60
     finally:

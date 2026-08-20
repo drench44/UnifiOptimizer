@@ -66,15 +66,20 @@ async def test_every_scheduled_job_has_a_real_misfire_grace(repo: Repository) ->
     discards the missed run; nothing is recorded), and /api/health read it stale
     with zero failures. A generous grace turns those skips into late runs.
     """
-    from netadmin.ingest.collector import MISFIRE_GRACE_S
+    from netadmin.config import MISFIRE_GRACE_S
 
     built = build_components(_configured(), repo)
     try:
         for job in built.scheduler.get_jobs():
-            assert job.misfire_grace_time is not None, f"{job.id} has unlimited grace only"
+            assert (
+                job.misfire_grace_time is not None
+            ), f"{job.id} has no explicit misfire grace (would inherit the 1 s default)"
             assert (
                 job.misfire_grace_time >= MISFIRE_GRACE_S
             ), f"{job.id} grace {job.misfire_grace_time}s is below {MISFIRE_GRACE_S}s"
+        # The crons get an hour: their one due time per day must not be skippable.
+        assert built.scheduler.get_job("retention_prune").misfire_grace_time == 3600
+        assert built.scheduler.get_job("detect_daily").misfire_grace_time == 3600
     finally:
         if built.scheduler.running:
             built.scheduler.shutdown(wait=False)

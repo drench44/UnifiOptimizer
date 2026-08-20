@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
+from netadmin.config import misfire_grace_for
 from netadmin.domain.entities import Entity
 from netadmin.domain.types import EntityType
 from netadmin.ingest.mapping import (
@@ -78,15 +79,6 @@ JOB_REPORTS_5MIN = "reports_5min"
 JOB_ROGUEAP = "rogueap"
 JOB_ALARMS = "alarms"
 JOB_ANOMALIES = "anomalies"
-
-# How late a scheduled run may fire before APScheduler skips it. The default is
-# 1 second, which turns any event-loop stall (the analysis jobs run sync store
-# work on the loop thread) into silently skipped cycles: a ~30 s stall each
-# 5-minute tick starved ``sle_minutes`` completely — every due time landed
-# inside the stall, every run was discarded, and /api/health read it stale with
-# zero recorded failures. With ``coalesce=True`` a generous grace is safe: a
-# late job runs once, immediately, instead of not at all.
-MISFIRE_GRACE_S = 60
 
 # entities.entity_type for neighbor / rogue BSS rows (ARCHITECTURE.md 5.1). These
 # are stored as inventory entities: the entities table has no type CHECK and
@@ -569,7 +561,10 @@ def build_scheduler(
             name=job_id,
             max_instances=1,
             coalesce=True,
-            misfire_grace_time=MISFIRE_GRACE_S,
+            # Scaled to the period: a stall over the due time of the 6 h
+            # reports_5min or 24 h rogueap job must delay it, not (with the 1 s
+            # library default) silently cost a whole period. See netadmin.config.
+            misfire_grace_time=misfire_grace_for(seconds),
             next_run_time=now + timedelta(seconds=i * stagger_s),
             replace_existing=True,
         )
@@ -588,6 +583,5 @@ __all__ = [
     "JOB_ROGUEAP",
     "JOB_ALARMS",
     "JOB_ANOMALIES",
-    "MISFIRE_GRACE_S",
     "ROGUE_BSS_TYPE",
 ]

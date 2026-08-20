@@ -476,7 +476,7 @@ def schedule_detection(
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from apscheduler.triggers.cron import CronTrigger
 
-    from netadmin.ingest.collector import MISFIRE_GRACE_S
+    from netadmin.config import CRON_MISFIRE_GRACE_S, misfire_grace_for
 
     sched = scheduler or AsyncIOScheduler(timezone=timezone.utc)
     base = now or datetime.now(timezone.utc)
@@ -505,7 +505,7 @@ def schedule_detection(
         name=_pass_job(Cadence.FAST),
         max_instances=1,
         coalesce=True,
-        misfire_grace_time=MISFIRE_GRACE_S,
+        misfire_grace_time=misfire_grace_for(fast_s),
         next_run_time=base + timedelta(seconds=cfg.stagger_s),
         replace_existing=True,
     )
@@ -517,7 +517,7 @@ def schedule_detection(
         name=_pass_job(Cadence.WINDOW),
         max_instances=1,
         coalesce=True,
-        misfire_grace_time=MISFIRE_GRACE_S,
+        misfire_grace_time=misfire_grace_for(cfg.window_interval_s),
         next_run_time=base + timedelta(seconds=cfg.stagger_s * 2),
         replace_existing=True,
     )
@@ -530,7 +530,7 @@ def schedule_detection(
         coalesce=True,
         # A daily cron whose one due time lands inside a stall (or a restart
         # settling) should still run that day — an hour of grace, not a skip.
-        misfire_grace_time=3600,
+        misfire_grace_time=CRON_MISFIRE_GRACE_S,
         replace_existing=True,
     )
     return sched
