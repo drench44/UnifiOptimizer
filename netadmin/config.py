@@ -31,6 +31,33 @@ SECRETS_ENV = DATA_DIR / "secrets.env"
 DEFAULT_DB_PATH = DATA_DIR / "netadmin.db"
 DEFAULT_LOG_DIR = PROJECT_ROOT / "Logging"
 
+# --------------------------------------------------------------------------- #
+# Scheduler misfire policy (shared by ingest and detect wiring)
+# --------------------------------------------------------------------------- #
+# How late a scheduled run may fire before APScheduler skips it. The library
+# default is 1 second, which turns any event-loop stall (analysis jobs run sync
+# store work on the loop thread) into silently skipped cycles: a ~30 s stall
+# each 5-minute tick starved ``sle_minutes`` completely — every due time landed
+# inside the stall, every run was discarded, and /api/health read it stale with
+# zero recorded failures. With ``coalesce=True`` a generous grace is safe: a
+# late job runs once, immediately, instead of not at all.
+MISFIRE_GRACE_S = 60
+
+# Cron jobs (and interval jobs with hours-long periods) get up to an hour: a
+# stall or restart over their one due time should delay the run, not lose a
+# whole period.
+CRON_MISFIRE_GRACE_S = 3600
+
+
+def misfire_grace_for(interval_s: int) -> int:
+    """Misfire grace scaled to an interval job's period.
+
+    Never below :data:`MISFIRE_GRACE_S`; half the period for long intervals so a
+    stall over the due time of a 6 h or 24 h job cannot silently cost a whole
+    period; capped at :data:`CRON_MISFIRE_GRACE_S`.
+    """
+    return max(MISFIRE_GRACE_S, min(int(interval_s) // 2, CRON_MISFIRE_GRACE_S))
+
 
 class PollIntervals(BaseModel):
     """Collector cadences in seconds (section 5.2). Offsets keep them unaligned."""

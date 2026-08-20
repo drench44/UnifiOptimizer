@@ -290,6 +290,18 @@ def test_update_counts_series_touched(repo: Repository, ap_entity_id: int) -> No
     assert bl.update_from_recent(now_ts=300) == 0
 
 
+def test_series_without_samples_is_skipped(repo: Repository, ap_entity_id: int) -> None:
+    # The candidates query walks ``series`` and asks each for its newest sample
+    # (an index-backed correlated MAX -- see _series_needing_update); a series
+    # row with no samples yet answers NULL and must be skipped, not crash.
+    repo.connection.execute(
+        "INSERT INTO series (entity_id, metric) VALUES (?, ?)", (ap_entity_id, "rssi")
+    )
+    record_gauge(repo, ap_entity_id, "noise", [(100, 2.0)])
+    bl = Baselines(repo, alpha=0.5, min_samples=1)
+    assert bl.update_from_recent(now_ts=200) == 1
+
+
 def test_gap_tolerant_across_missed_hours(repo: Repository, ap_entity_id: int) -> None:
     # A long gap between two live windows must not corrupt state; the second
     # window simply continues the EWMA from where the first left off.

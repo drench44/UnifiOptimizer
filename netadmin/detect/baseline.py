@@ -299,19 +299,31 @@ class Baselines:
     def _series_needing_update(self, now_ts: int) -> list[tuple[int, str, int]]:
         """(series_id, metric, watermark) for series with a fresh sample <= now.
 
-        One aggregate query over ``samples`` gives the newest ts per series; a
+        A correlated ``MAX(ts)`` subquery per series gives the newest ts; a
         series is a candidate only when that exceeds its stored watermark. The
         watermark is read per series from the reserved ``_meta`` bucket.
+
+        The subquery form matters: it hits SQLite's min/max optimization on the
+        ``samples`` primary key ``(series_id, ts)`` — one B-tree descent per
+        series, milliseconds regardless of table size. The previous
+        ``JOIN ... GROUP BY`` aggregate stepped every ``samples`` row instead,
+        which grew linearly with retention (~29 s at 42M rows) and — because
+        analysis jobs run on the event-loop thread the store connection is bound
+        to — blocked the scheduler long enough that co-scheduled jobs
+        (``sle_minutes`` in particular) missed their misfire window every cycle
+        and were silently skipped.
         """
         rows = self._conn.execute(
-            "SELECT se.series_id AS sid, se.metric AS metric, MAX(s.ts) AS mx "
-            "FROM series se JOIN samples s ON s.series_id = se.series_id "
-            "WHERE s.ts <= ? "
-            "GROUP BY se.series_id, se.metric",
+            "SELECT se.series_id AS sid, se.metric AS metric, "
+            "(SELECT MAX(s.ts) FROM samples s "
+            " WHERE s.series_id = se.series_id AND s.ts <= ?) AS mx "
+            "FROM series se",
             (now_ts,),
         ).fetchall()
         out: list[tuple[int, str, int]] = []
         for row in rows:
+            if row["mx"] is None:
+                continue  # series with no samples yet: nothing to fold
             sid = int(row["sid"])
             mx = int(row["mx"])
             watermark = self._watermark(sid)

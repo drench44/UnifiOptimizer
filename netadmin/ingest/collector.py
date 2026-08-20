@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional
 
+from netadmin.config import misfire_grace_for
 from netadmin.domain.entities import Entity
 from netadmin.domain.types import EntityType
 from netadmin.ingest.mapping import (
@@ -560,6 +561,10 @@ def build_scheduler(
             name=job_id,
             max_instances=1,
             coalesce=True,
+            # Scaled to the period: a stall over the due time of the 6 h
+            # reports_5min or 24 h rogueap job must delay it, not (with the 1 s
+            # library default) silently cost a whole period. See netadmin.config.
+            misfire_grace_time=misfire_grace_for(seconds),
             next_run_time=now + timedelta(seconds=i * stagger_s),
             replace_existing=True,
         )

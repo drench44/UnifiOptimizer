@@ -57,6 +57,34 @@ async def test_build_components_wires_all_scheduler_jobs(repo: Repository) -> No
     assert isinstance(built.probes, ProbeRunner)
 
 
+async def test_every_scheduled_job_has_a_real_misfire_grace(repo: Repository) -> None:
+    """No job may run with APScheduler's 1 s default misfire grace.
+
+    The analysis jobs run sync store work on the event-loop thread, so any long
+    pass delays every other job's due time. With the 1 s default, a ~30 s stall
+    each 5-minute tick silently skipped ``sle_minutes`` on every cycle (coalesce
+    discards the missed run; nothing is recorded), and /api/health read it stale
+    with zero failures. A generous grace turns those skips into late runs.
+    """
+    from netadmin.config import MISFIRE_GRACE_S
+
+    built = build_components(_configured(), repo)
+    try:
+        for job in built.scheduler.get_jobs():
+            assert (
+                job.misfire_grace_time is not None
+            ), f"{job.id} has no explicit misfire grace (would inherit the 1 s default)"
+            assert (
+                job.misfire_grace_time >= MISFIRE_GRACE_S
+            ), f"{job.id} grace {job.misfire_grace_time}s is below {MISFIRE_GRACE_S}s"
+        # The crons get an hour: their one due time per day must not be skippable.
+        assert built.scheduler.get_job("retention_prune").misfire_grace_time == 3600
+        assert built.scheduler.get_job("detect_daily").misfire_grace_time == 3600
+    finally:
+        if built.scheduler.running:
+            built.scheduler.shutdown(wait=False)
+
+
 async def test_build_components_uses_injected_issue_engine(repo: Repository) -> None:
     from netadmin.issues.engine import IssueEngine
     from netadmin.issues.store_repository import StoreIssueRepository
