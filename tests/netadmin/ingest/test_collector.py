@@ -18,6 +18,7 @@ from netadmin.domain.types import EntityType
 from netadmin.ingest.collector import (
     JOB_FAST_DEVICE,
     JOB_FAST_HEALTH,
+    MISFIRE_GRACE_S,
     Collector,
     CollectorStatus,
     build_scheduler,
@@ -418,6 +419,9 @@ async def test_build_scheduler_wires_all_jobs_max_instance_one(repo):
         for job in sched.get_jobs():
             assert job.max_instances == 1
             assert job.coalesce is True
+            # Not APScheduler's 1 s default: a stalled loop delays runs, never
+            # silently skips them (the sle_minutes starvation class).
+            assert job.misfire_grace_time == MISFIRE_GRACE_S
         dev = sched.get_job("fast_device")
         assert int(dev.trigger.interval.total_seconds()) == 60
     finally:

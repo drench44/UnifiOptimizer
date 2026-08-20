@@ -79,6 +79,15 @@ JOB_ROGUEAP = "rogueap"
 JOB_ALARMS = "alarms"
 JOB_ANOMALIES = "anomalies"
 
+# How late a scheduled run may fire before APScheduler skips it. The default is
+# 1 second, which turns any event-loop stall (the analysis jobs run sync store
+# work on the loop thread) into silently skipped cycles: a ~30 s stall each
+# 5-minute tick starved ``sle_minutes`` completely — every due time landed
+# inside the stall, every run was discarded, and /api/health read it stale with
+# zero recorded failures. With ``coalesce=True`` a generous grace is safe: a
+# late job runs once, immediately, instead of not at all.
+MISFIRE_GRACE_S = 60
+
 # entities.entity_type for neighbor / rogue BSS rows (ARCHITECTURE.md 5.1). These
 # are stored as inventory entities: the entities table has no type CHECK and
 # ``upsert_entity`` str()-coerces a non-enum type, so this needs no schema or
@@ -560,6 +569,7 @@ def build_scheduler(
             name=job_id,
             max_instances=1,
             coalesce=True,
+            misfire_grace_time=MISFIRE_GRACE_S,
             next_run_time=now + timedelta(seconds=i * stagger_s),
             replace_existing=True,
         )
@@ -578,5 +588,6 @@ __all__ = [
     "JOB_ROGUEAP",
     "JOB_ALARMS",
     "JOB_ANOMALIES",
+    "MISFIRE_GRACE_S",
     "ROGUE_BSS_TYPE",
 ]

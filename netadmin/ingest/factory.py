@@ -30,7 +30,7 @@ from netadmin.config import Settings
 from netadmin.domain.entities import Entity
 from netadmin.domain.types import EntityType
 from netadmin.ingest.backfill import REPORT_METRICS, Backfiller
-from netadmin.ingest.collector import Collector, build_scheduler
+from netadmin.ingest.collector import MISFIRE_GRACE_S, Collector, build_scheduler
 from netadmin.ingest.events import EventListener as EventsListener
 from netadmin.ingest.events import WsSupervisor, catchup_events
 from netadmin.ingest.probes import DEFAULT_ANCHOR, DnsProber, RttProber, persist_probe_samples
@@ -429,6 +429,7 @@ def _add_analysis_jobs(
             name=job_id,
             max_instances=1,
             coalesce=True,
+            misfire_grace_time=MISFIRE_GRACE_S,
             # Offset after the detect passes so a busy tick does not all fire at once.
             next_run_time=now + timedelta(seconds=15 + i * 3),
             replace_existing=True,
@@ -475,6 +476,7 @@ def _add_correlation_job(scheduler: Any, settings: Settings, store: Repository) 
         name=JOB_CORRELATE,
         max_instances=1,
         coalesce=True,
+        misfire_grace_time=MISFIRE_GRACE_S,
         # After the detect passes + baseline/sle jobs (staggered at 5-18 s) so a
         # busy tick does not fire everything at once and the first correlation
         # sees the freshly-written issues.
@@ -503,6 +505,9 @@ def _add_prune_job(scheduler: Any, store: Repository, *, prune_hour: int) -> Non
         name=_RETENTION_PRUNE_JOB,
         max_instances=1,
         coalesce=True,
+        # A nightly cron gets an hour of grace: a stall over its one due time
+        # should delay the prune, not push it to tomorrow.
+        misfire_grace_time=3600,
         replace_existing=True,
     )
 
